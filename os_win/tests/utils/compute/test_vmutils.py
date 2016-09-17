@@ -191,7 +191,7 @@ class VMUtilsTestCase(test_base.OsWinBaseTestCase):
         mock_shutdown.InitiateShutdown.assert_called_once_with(
             Force=False, Reason=mock.ANY)
         self._vmutils._conn.Msvm_ShutdownComponent.assert_called_once_with(
-                SystemName=mock_vm.Name)
+            SystemName=mock_vm.Name)
         self._vmutils._jobutils.check_ret_val.assert_called_once_with(
             self._FAKE_RET_VAL, None)
 
@@ -202,7 +202,7 @@ class VMUtilsTestCase(test_base.OsWinBaseTestCase):
         self._vmutils.soft_shutdown_vm(self._FAKE_VM_NAME)
 
         self._vmutils._conn.Msvm_ShutdownComponent.assert_called_once_with(
-                SystemName=mock_vm.Name)
+            SystemName=mock_vm.Name)
         self.assertFalse(self._vmutils._jobutils.check_ret_val.called)
 
     @mock.patch.object(vmutils.VMUtils, '_get_vm_disks')
@@ -361,7 +361,8 @@ class VMUtilsTestCase(test_base.OsWinBaseTestCase):
         type(fake_drive).AddressOnParent = mock.PropertyMock(
             side_effect=list(range(constants.SCSI_CONTROLLER_SLOTS_NUMBER)))
 
-        with mock.patch.object(self._vmutils,
+        with mock.patch.object(
+                self._vmutils,
                 'get_attached_disks') as fake_get_attached_disks:
             fake_get_attached_disks.return_value = (
                 [fake_drive] * constants.SCSI_CONTROLLER_SLOTS_NUMBER)
@@ -523,7 +524,7 @@ class VMUtilsTestCase(test_base.OsWinBaseTestCase):
         expected_serial = mock_phys_disk.ElementName
         expected_mapping = {
             expected_serial: {
-                'resource_path': mock_phys_disk.Path_.return_value,
+                'resource_path': mock_phys_disk.path_.return_value,
                 'mounted_disk_path': mock_phys_disk.HostResource[0]
             }
         }
@@ -786,7 +787,7 @@ class VMUtilsTestCase(test_base.OsWinBaseTestCase):
         fake_ret_val = 'fake return value'
 
         mock_vs_man_svc.ModifySystemSettings.return_value = (fake_job_path,
-                                                            fake_ret_val)
+                                                             fake_ret_val)
 
         self._vmutils._modify_virtual_system(vmsetting=mock_vmsetting)
 
@@ -911,11 +912,11 @@ class VMUtilsTestCase(test_base.OsWinBaseTestCase):
             "WHERE TargetInstance ISA '%(class)s' "
             "AND TargetInstance.%(field)s != "
             "PreviousInstance.%(field)s "
-            "AND (%(checks)s)" %
-                {'class': cls,
-                 'field': field,
-                 'timeframe': timeframe,
-                 'checks': expected_checks})
+            "AND (%(checks)s)"
+            % {'class': cls,
+               'field': field,
+               'timeframe': timeframe,
+               'checks': expected_checks})
 
         query = self._vmutils._get_event_wql_query(
             cls=cls, field=field, timeframe=timeframe,
@@ -942,9 +943,10 @@ class VMUtilsTestCase(test_base.OsWinBaseTestCase):
             self.assertEqual(watcher.return_value, listener)
 
     @mock.patch('time.sleep')
-    def test_vm_power_state_change_event_handler(self, mock_sleep):
-        self._mock_wmi.x_wmi_timed_out = exceptions.HyperVException
-
+    @mock.patch.object(vmutils, 'tpool')
+    @mock.patch.object(vmutils, 'patcher')
+    def test_vm_power_state_change_event_handler(self, mock_patcher,
+                                                 mock_tpool, mock_sleep):
         enabled_state = constants.HYPERV_VM_STATE_ENABLED
         hv_enabled_state = self._vmutils._vm_power_states_map[enabled_state]
         fake_event = mock.Mock(ElementName=mock.sentinel.vm_name,
@@ -953,9 +955,9 @@ class VMUtilsTestCase(test_base.OsWinBaseTestCase):
 
         fake_listener = (
             self._vmutils._conn.Msvm_ComputerSystem.watch_for.return_value)
-        fake_listener.side_effect = (self._mock_wmi.x_wmi_timed_out,
-                                     fake_event, Exception,
-                                     KeyboardInterrupt)
+        mock_tpool.execute.side_effect = (exceptions.x_wmi_timed_out,
+                                          fake_event, Exception,
+                                          KeyboardInterrupt)
 
         handler = self._vmutils.get_vm_power_state_change_listener(
             get_handler=True)
@@ -965,7 +967,8 @@ class VMUtilsTestCase(test_base.OsWinBaseTestCase):
 
         fake_callback.assert_called_once_with(mock.sentinel.vm_name,
                                               enabled_state)
-        fake_listener.assert_has_calls(
+        mock_tpool.execute.assert_has_calls(
+            fake_listener,
             [mock.call(self._vmutils._DEFAULT_EVENT_TIMEOUT_MS)] * 4)
         mock_sleep.assert_called_once_with(
             self._vmutils._DEFAULT_EVENT_TIMEOUT_MS / 1000)

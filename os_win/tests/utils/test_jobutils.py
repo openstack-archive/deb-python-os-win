@@ -12,6 +12,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import ddt
 import mock
 
 from os_win import constants
@@ -20,6 +21,7 @@ from os_win.tests import test_base
 from os_win.utils import jobutils
 
 
+@ddt.ddt
 class JobUtilsTestCase(test_base.OsWinBaseTestCase):
     """Unit tests for the Hyper-V JobUtils class."""
 
@@ -77,41 +79,80 @@ class JobUtilsTestCase(test_base.OsWinBaseTestCase):
                           self.jobutils._wait_for_job,
                           self._FAKE_JOB_PATH)
 
-    def test_wait_for_job_killed(self):
-        mockjob = self._prepare_wait_for_job(constants.JOB_STATE_KILLED)
-        job = self.jobutils._wait_for_job(self._FAKE_JOB_PATH)
-        self.assertEqual(mockjob, job)
-
     def test_wait_for_job_ok(self):
         mock_job = self._prepare_wait_for_job(
             constants.WMI_JOB_STATE_COMPLETED)
         job = self.jobutils._wait_for_job(self._FAKE_JOB_PATH)
         self.assertEqual(mock_job, job)
 
-    def test_stop_jobs(self):
-        mock_job1 = mock.MagicMock(Cancellable=True)
-        mock_job2 = mock.MagicMock(Cancellable=True)
-        mock_job3 = mock.MagicMock(Cancellable=True)
-        mock_job1.JobState = 2
-        mock_job2.JobState = 3
-        mock_job3.JobState = constants.JOB_STATE_KILLED
+    @ddt.data(True, False)
+    def test_get_pending_jobs(self, ignore_error_state):
+        mock_killed_job = mock.Mock(JobState=constants.JOB_STATE_KILLED)
+        mock_running_job = mock.Mock(JobState=constants.WMI_JOB_STATE_RUNNING)
+        mock_error_st_job = mock.Mock(JobState=constants.JOB_STATE_EXCEPTION)
+        mappings = [mock.Mock(AffectingElement=None),
+                    mock.Mock(AffectingElement=mock_killed_job),
+                    mock.Mock(AffectingElement=mock_running_job),
+                    mock.Mock(AffectingElement=mock_error_st_job)]
+        self.jobutils._conn.Msvm_AffectedJobElement.return_value = mappings
 
-        mock_vm = mock.MagicMock()
-        mock_vm_jobs = [mock.Mock(AffectingElement=x) for x in [mock_job1,
-                                                                mock_job2,
-                                                                mock_job3]]
-        self.jobutils._conn.Msvm_AffectedJobElement.return_value = mock_vm_jobs
+        mock_affected_element = mock.Mock()
 
-        self.jobutils.stop_jobs(mock_vm)
+        expected_pending_jobs = [mock_running_job]
+        if not ignore_error_state:
+            expected_pending_jobs.append(mock_error_st_job)
+
+        pending_jobs = self.jobutils._get_pending_jobs_affecting_element(
+            mock_affected_element,
+            ignore_error_state=ignore_error_state)
+        self.assertEqual(expected_pending_jobs, pending_jobs)
+
+        self.jobutils._conn.Msvm_AffectedJobElement.assert_called_once_with(
+            AffectedElement=mock_affected_element.path_.return_value)
+
+    @ddt.data(True, False)
+    @mock.patch.object(jobutils.JobUtils,
+                       '_get_pending_jobs_affecting_element')
+    def test_stop_jobs_helper(self, jobs_ended, mock_get_pending_jobs):
+        mock_job1 = mock.Mock(Cancellable=True)
+        mock_job2 = mock.Mock(Cancellable=True)
+        mock_job3 = mock.Mock(Cancellable=False)
+
+        pending_jobs = [mock_job1, mock_job2, mock_job3]
+        mock_get_pending_jobs.side_effect = (
+            pending_jobs,
+            pending_jobs if not jobs_ended else [])
+
+        mock_job1.RequestStateChange.side_effect = (
+            test_base.FakeWMIExc(hresult=jobutils.JobUtils._WBEM_E_NOT_FOUND))
+        mock_job2.RequestStateChange.side_effect = (
+            test_base.FakeWMIExc(hresult=mock.sentinel.hresult))
+
+        if jobs_ended:
+            self.jobutils._stop_jobs(mock.sentinel.vm)
+        else:
+            self.assertRaises(exceptions.JobTerminateFailed,
+                              self.jobutils._stop_jobs,
+                              mock.sentinel.vm)
+
+        mock_get_pending_jobs.assert_has_calls(
+            [mock.call(mock.sentinel.vm, ignore_error_state=False),
+             mock.call(mock.sentinel.vm)])
 
         mock_job1.RequestStateChange.assert_called_once_with(
             self.jobutils._KILL_JOB_STATE_CHANGE_REQUEST)
         mock_job2.RequestStateChange.assert_called_once_with(
             self.jobutils._KILL_JOB_STATE_CHANGE_REQUEST)
-        self.assertFalse(mock_job3.RequestStateChange.called)
+        self.assertFalse(mock_job3.RequestStateqqChange.called)
+
+    @mock.patch.object(jobutils.JobUtils, '_stop_jobs')
+    def test_stop_jobs(self, mock_stop_jobs_helper):
+        fake_timeout = 1
+        self.jobutils.stop_jobs(mock.sentinel.element, fake_timeout)
+        mock_stop_jobs_helper.assert_called_once_with(mock.sentinel.element)
 
     def test_is_job_completed_true(self):
-        job = mock.MagicMock(JobState=constants.JOB_STATE_COMPLETED)
+        job = mock.MagicMock(JobState=constants.WMI_JOB_STATE_COMPLETED)
 
         self.assertTrue(self.jobutils._is_job_completed(job))
 

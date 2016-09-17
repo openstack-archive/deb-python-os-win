@@ -258,8 +258,8 @@ class ISCSIInitiatorUtilsTestCase(test_base.OsWinBaseTestCase):
 
         self.assertEqual(['fake', 'buff'], str_list)
 
-        self._ctypes.cast.assert_called_once_with(fake_buff,
-            self._ctypes.POINTER.return_value)
+        self._ctypes.cast.assert_called_once_with(
+            fake_buff, self._ctypes.POINTER.return_value)
         self._ctypes.POINTER.assert_called_once_with(self._ctypes.c_wchar)
 
     def test_get_iscsi_initiator(self):
@@ -350,7 +350,7 @@ class ISCSIInitiatorUtilsTestCase(test_base.OsWinBaseTestCase):
     @mock.patch.object(iscsi_utils.ISCSIInitiatorUtils,
                        '_get_iscsi_sessions')
     def test_get_iscsi_target_sessions(self, mock_get_iscsi_sessions,
-                                        target_sessions_found=True):
+                                       target_sessions_found=True):
         fake_session = mock.Mock(TargetNodeName=mock.sentinel.target_name,
                                  ConnectionCount=1)
         fake_disconn_session = mock.Mock(
@@ -670,7 +670,8 @@ class ISCSIInitiatorUtilsTestCase(test_base.OsWinBaseTestCase):
             auth_username=mock.sentinel.auth_username,
             auth_password=mock.sentinel.auth_password,
             auth_type=mock.sentinel.auth_type,
-            mpio_enabled=mpio_enabled)
+            mpio_enabled=mpio_enabled,
+            rescan_attempts=mock.sentinel.rescan_attempts)
 
         mock_get_targets.assert_called_once_with()
         mock_add_static_target.assert_called_once_with(
@@ -702,7 +703,8 @@ class ISCSIInitiatorUtilsTestCase(test_base.OsWinBaseTestCase):
 
         mock_ensure_lun_available.assert_called_once_with(
             mock.sentinel.target_iqn,
-            mock.sentinel.target_lun)
+            mock.sentinel.target_lun,
+            mock.sentinel.rescan_attempts)
 
     def test_login_storage_target_path_exists(self):
         self._test_login_storage_target(login_required=False)

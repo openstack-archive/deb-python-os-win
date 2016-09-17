@@ -18,12 +18,22 @@ import mock
 from oslotest import base
 from six.moves import builtins
 
+from os_win import exceptions
+
+
+class FakeWMIExc(exceptions.x_wmi):
+    def __init__(self, hresult=None):
+        excepinfo = [None] * 5 + [hresult]
+        self.com_error = mock.Mock(excepinfo=excepinfo)
+        super(FakeWMIExc, self).__init__()
+
 
 class OsWinBaseTestCase(base.BaseTestCase):
     def setUp(self):
         super(OsWinBaseTestCase, self).setUp()
 
         self._mock_wmi = mock.MagicMock()
+
         mock_os = mock.MagicMock(Version='6.3.0')
         self._mock_wmi.WMI.return_value.Win32_OperatingSystem.return_value = (
             [mock_os])

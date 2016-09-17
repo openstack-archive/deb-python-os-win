@@ -18,13 +18,11 @@ Utility class for network related operations.
 Based on the "root/virtualization/v2" namespace available starting with
 Hyper-V Server / Windows Server 2012.
 """
+import functools
 import re
 
-from eventlet import greenthread
-import sys
-
-if sys.platform == 'win32':
-    import wmi
+from eventlet import patcher
+from eventlet import tpool
 
 from os_win._i18n import _
 from os_win import exceptions
@@ -215,13 +213,20 @@ class NetworkUtils(baseutils.BaseUtilsVirt):
             query)
 
         def _poll_events(callback):
+            if patcher.is_monkey_patched('thread'):
+                listen = functools.partial(tpool.execute, listener,
+                                           self._VNIC_LISTENER_TIMEOUT_MS)
+            else:
+                listen = functools.partial(listener,
+                                           self._VNIC_LISTENER_TIMEOUT_MS)
+
             while True:
                 # Retrieve one by one all the events that occurred in
                 # the checked interval.
                 try:
-                    event = listener(self._VNIC_LISTENER_TIMEOUT_MS)
+                    event = listen()
                     callback(event.ElementName)
-                except wmi.x_wmi_timed_out:
+                except exceptions.x_wmi_timed_out:
                     # no new event published.
                     pass
 
@@ -286,7 +291,7 @@ class NetworkUtils(baseutils.BaseUtilsVirt):
         if not vnic_deleted:
             try:
                 self._jobutils.remove_virt_resource(sw_port)
-            except wmi.x_wmi:
+            except exceptions.x_wmi:
                 # port may have already been destroyed by Hyper-V
                 pass
 
@@ -527,9 +532,6 @@ class NetworkUtils(baseutils.BaseUtilsVirt):
             # append sg_rule the acls list, to make sure that the same rule
             # is not processed twice.
             processed_sg_rules.append(sg_rule)
-
-            # yielding to other threads that must run (like state reporting)
-            greenthread.sleep()
 
         if add_acls:
             self._jobutils.add_multiple_virt_features(add_acls, port)

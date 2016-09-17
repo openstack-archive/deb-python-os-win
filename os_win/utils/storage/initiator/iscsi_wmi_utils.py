@@ -18,11 +18,7 @@
 Helper methods for operations related to the management of volumes
 and storage repositories on Windows Server 2012 and above
 """
-import sys
 import time
-
-if sys.platform == 'win32':
-    import wmi
 
 from oslo_config import cfg
 from oslo_log import log as logging
@@ -99,7 +95,7 @@ class ISCSIInitiatorWMIUtils(base_iscsi_utils.BaseISCSIInitiatorUtils):
                 target.Connect(NodeAddress=target_iqn,
                                IsPersistent=True, **auth)
                 time.sleep(CONF.hyperv.volume_attach_retry_interval)
-            except wmi.x_wmi as exc:
+            except exceptions.x_wmi as exc:
                 LOG.debug("Attempt %(attempt)d to connect to target  "
                           "%(target_iqn)s failed. Retrying. "
                           "WMI exception: %(exc)s " %

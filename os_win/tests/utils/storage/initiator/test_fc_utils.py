@@ -29,8 +29,7 @@ class FCUtilsTestCase(base.BaseTestCase):
     _FAKE_ADAPTER_NAME = 'fake_adapter_name'
     _FAKE_ADAPTER_WWN = list(range(8))
 
-    @mock.patch.object(fc_utils, 'wmi', create=True)
-    def setUp(self, mock_wmi):
+    def setUp(self):
         super(FCUtilsTestCase, self).setUp()
         self._setup_lib_mocks()
 
@@ -117,7 +116,7 @@ class FCUtilsTestCase(base.BaseTestCase):
             mock_open_adapter.assert_called_once_with(
                 adapter_name=self._FAKE_ADAPTER_NAME)
         mock_close_adapter.assert_called_once_with(
-                mock_open_adapter.return_value)
+            mock_open_adapter.return_value)
 
     @mock.patch.object(ctypes, 'byref')
     def test_get_adapter_name(self, mock_byref):

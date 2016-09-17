@@ -20,9 +20,6 @@ import inspect
 import socket
 import sys
 
-if sys.platform == 'win32':
-    iscsidsc = ctypes.windll.iscsidsc
-
 from oslo_log import log as logging
 
 from os_win._i18n import _LI
@@ -33,6 +30,9 @@ from os_win.utils.storage import diskutils
 from os_win.utils.storage.initiator import iscsidsc_structures as iscsi_struct
 from os_win.utils.storage.initiator import iscsierr
 from os_win.utils import win32utils
+
+if sys.platform == 'win32':
+    iscsidsc = ctypes.windll.iscsidsc
 
 LOG = logging.getLogger(__name__)
 
@@ -145,7 +145,7 @@ class ISCSIInitiatorUtils(object):
         parse_output=False)
     def get_iscsi_initiators(self, buff=None, buff_size=None,
                              element_count=None):
-        """Get the list of iSCSI targets seen by the initiator service."""
+        """Get the list of available iSCSI initiator HBAs."""
         self._run_and_check_output(
             iscsidsc.ReportIScsiInitiatorListW,
             ctypes.byref(element_count),
@@ -203,8 +203,8 @@ class ISCSIInitiatorUtils(object):
     def _get_iscsi_target_sessions(self, target_name, connected_only=True):
         sessions = self._get_iscsi_sessions()
         return [session for session in sessions
-                if session.TargetNodeName == target_name
-                and (session.ConnectionCount > 0 or not connected_only)]
+                if session.TargetNodeName == target_name and
+                (session.ConnectionCount > 0 or not connected_only)]
 
     @retry_decorator(error_codes=iscsierr.ISDSC_SESSION_BUSY)
     @ensure_buff_and_retrieve_items(
@@ -342,7 +342,8 @@ class ISCSIInitiatorUtils(object):
                              auth_type=None,
                              mpio_enabled=False,
                              ensure_lun_available=True,
-                             initiator_name=None):
+                             initiator_name=None,
+                             rescan_attempts=_DEFAULT_RESCAN_ATTEMPTS):
         portal_addr, portal_port = _utils.parse_server_string(target_portal)
         portal_port = (int(portal_port)
                        if portal_port else iscsi_struct.DEFAULT_ISCSI_PORT)
@@ -384,7 +385,7 @@ class ISCSIInitiatorUtils(object):
                                                 is_persistent=False)
 
         if ensure_lun_available:
-            self.ensure_lun_available(target_iqn, target_lun)
+            self.ensure_lun_available(target_iqn, target_lun, rescan_attempts)
 
     def ensure_lun_available(self, target_iqn, target_lun,
                              rescan_attempts=_DEFAULT_RESCAN_ATTEMPTS):

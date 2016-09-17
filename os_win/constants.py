@@ -102,6 +102,7 @@ VM_GEN_2 = 2
 JOB_STATE_COMPLETED = 7
 JOB_STATE_TERMINATED = 8
 JOB_STATE_KILLED = 9
+JOB_STATE_EXCEPTION = 10
 JOB_STATE_COMPLETED_WITH_WARNINGS = 32768
 
 # Special vlan_id value in ovs_vlan_allocations table indicating flat network
@@ -132,3 +133,31 @@ REMOTEFX_MAX_RES_2560x1600 = "2560x1600"
 REMOTEFX_MAX_RES_3840x2160 = "3840x2160"
 
 IPV4_DEFAULT = '0.0.0.0'
+
+# The unattended file used when creating the .pdk file may contain substitution
+# strings. The substitution string along with their corresponding values will
+# be passed as metadata and added to a fsk file.
+# FSK_COMPUTERNAME represents the substitution string for ComputerName and will
+# set the hostname during vm provisioning.
+FSK_COMPUTERNAME = 'ComputerName'
+
+VTPM_SUPPORTED_OS = ['windows']
+
+# DNSUtils constants
+DNS_ZONE_TYPE_PRIMARY = 0
+DNS_ZONE_TYPE_SECONDARY = 1
+DNS_ZONE_TYPE_STUB = 2
+DNS_ZONE_TYPE_FORWARD = 3
+
+DNS_ZONE_NO_UPDATES_ALLOWED = 0
+DNS_ZONE_SECURE_NONSECURE_UPDATES = 1
+DNS_ZONE_SECURE_UPDATES_ONLY = 2
+
+DNS_ZONE_DO_NOT_NOTIFY = 0
+DNS_ZONE_NOTIFY_NAME_SERVERS_TAB = 1
+DNS_ZONE_NOTIFY_SPECIFIED_SERVERS = 2
+
+DNS_ZONE_TRANSFER_ALLOWED_ANY_HOST = 0
+DNS_ZONE_TRANSFER_ALLOWED_NAME_SERVERS = 1
+DNS_ZONE_TRANSFER_ALLOWED_SECONDARY_SERVERS = 2
+DNS_ZONE_TRANSFER_NOT_ALLOWED = 3

@@ -14,7 +14,6 @@
 #    under the License.
 
 from oslo_config import cfg
-from oslo_log import log as logging
 from oslo_utils import importutils
 
 from os_win._i18n import _, _LW  # noqa
@@ -33,8 +32,6 @@ hyper_opts = [
 CONF = cfg.CONF
 CONF.register_opts(hyper_opts, 'hyperv')
 
-LOG = logging.getLogger(__name__)
-
 utils = hostutils.HostUtils()
 
 utils_map = {
@@ -46,8 +43,12 @@ utils_map = {
     'hostutils': {
         'HostUtils': {
             'min_version': 6.2,
+            'max_version': 10,
+            'path': 'os_win.utils.hostutils.HostUtils'},
+        'HostUtils10': {
+            'min_version': 10,
             'max_version': None,
-            'path': 'os_win.utils.hostutils.HostUtils'}},
+            'path': 'os_win.utils.hostutils10.HostUtils10'}},
     'iscsi_initiator_utils': {
         'ISCSIInitiatorCLIUtils': {
             'min_version': 6.0,
@@ -130,6 +131,11 @@ utils_map = {
             'min_version': 6.2,
             'max_version': None,
             'path': 'os_win.utils.compute.clusterutils.ClusterUtils'}},
+    'dnsutils': {
+        'DNSUtils': {
+            'min_version': 6.2,
+            'max_version': None,
+            'path': 'os_win.utils.dns.dnsutils.DNSUtils'}}
 }
 
 
@@ -151,8 +157,9 @@ def _get_class(class_type):
             return importutils.import_object(utils_class['path'])
 
     raise exceptions.HyperVException(_('Could not find any %(class)s class for'
-        'this Windows version: %(win_version)s')
-        % {'class': class_type, 'win_version': windows_version})
+                                       'this Windows version: %(win_version)s')
+                                     % {'class': class_type,
+                                        'win_version': windows_version})
 
 
 def get_vmutils(host='.'):
@@ -220,3 +227,7 @@ def get_diskutils():
 
 def get_clusterutils():
     return _get_class(class_type='clusterutils')
+
+
+def get_dnsutils():
+    return _get_class(class_type='dnsutils')

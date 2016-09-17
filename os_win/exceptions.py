@@ -17,7 +17,23 @@
 Utility class for VM related operations on Hyper-V.
 """
 
+import sys
+
 from os_win._i18n import _
+
+# Define WMI specific exceptions, so WMI won't have to be imported in any
+# module that expects those exceptions.
+if sys.platform == 'win32':
+    import wmi
+
+    x_wmi = wmi.x_wmi
+    x_wmi_timed_out = wmi.x_wmi_timed_out
+else:
+    class x_wmi(Exception):
+        pass
+
+    class x_wmi_timed_out(x_wmi):
+        pass
 
 
 class OSWinException(Exception):
@@ -140,3 +156,19 @@ class HyperVRemoteFXException(HyperVException):
 
 class HyperVClusterException(HyperVException):
     pass
+
+
+class DNSException(OSWinException):
+    pass
+
+
+class DNSZoneNotFound(NotFound, DNSException):
+    msg_fmt = _("DNS Zone not found: %(zone_name)s")
+
+
+class DNSZoneAlreadyExists(DNSException):
+    msg_fmt = _("DNS Zone already exists: %(zone_name)s")
+
+
+class JobTerminateFailed(HyperVException):
+    msg_fmt = _("Could not terminate the requested job(s).")

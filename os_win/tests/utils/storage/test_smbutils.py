@@ -13,6 +13,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import ddt
 import mock
 
 from os_win import exceptions
@@ -20,6 +21,7 @@ from os_win.tests import test_base
 from os_win.utils.storage import smbutils
 
 
+@ddt.ddt
 class SMBUtilsTestCase(test_base.OsWinBaseTestCase):
     def setUp(self):
         super(SMBUtilsTestCase, self).setUp()
@@ -28,6 +30,7 @@ class SMBUtilsTestCase(test_base.OsWinBaseTestCase):
         self._smbutils._win32_utils = mock.Mock()
         self._smbutils._smb_conn = mock.Mock()
         self._mock_run = self._smbutils._win32_utils.run_and_check_output
+        self._smb_conn = self._smbutils._smb_conn
 
     @mock.patch.object(smbutils.SMBUtils, 'unmount_smb_share')
     @mock.patch('os.path.exists')
@@ -38,8 +41,7 @@ class SMBUtilsTestCase(test_base.OsWinBaseTestCase):
         fake_mappings = (
             [mock.sentinel.smb_mapping] if existing_mappings else [])
 
-        self._smbutils._smb_conn.Msft_SmbMapping.return_value = (
-            fake_mappings)
+        self._smb_conn.Msft_SmbMapping.return_value = fake_mappings
 
         ret_val = self._smbutils.check_smb_mapping(
             mock.sentinel.share_path, remove_unavailable_mapping=True)
@@ -61,7 +63,7 @@ class SMBUtilsTestCase(test_base.OsWinBaseTestCase):
                                      share_available=True)
 
     def test_mount_smb_share(self):
-        fake_create = self._smbutils._smb_conn.Msft_SmbMapping.Create
+        fake_create = self._smb_conn.Msft_SmbMapping.Create
         self._smbutils.mount_smb_share(mock.sentinel.share_path,
                                        mock.sentinel.username,
                                        mock.sentinel.password)
@@ -70,11 +72,8 @@ class SMBUtilsTestCase(test_base.OsWinBaseTestCase):
             UserName=mock.sentinel.username,
             Password=mock.sentinel.password)
 
-    @mock.patch.object(smbutils, 'wmi', create=True)
-    def test_mount_smb_share_failed(self, mock_wmi):
-        mock_wmi.x_wmi = Exception
-        self._smbutils._smb_conn.Msft_SmbMapping.Create.side_effect = (
-            mock_wmi.x_wmi)
+    def test_mount_smb_share_failed(self):
+        self._smb_conn.Msft_SmbMapping.Create.side_effect = exceptions.x_wmi
 
         self.assertRaises(exceptions.SMBException,
                           self._smbutils.mount_smb_share,
@@ -84,11 +83,11 @@ class SMBUtilsTestCase(test_base.OsWinBaseTestCase):
         fake_mapping = mock.Mock()
         fake_mapping_attr_err = mock.Mock()
         fake_mapping_attr_err.side_effect = AttributeError
-        smb_mapping_class = self._smbutils._smb_conn.Msft_SmbMapping
+        smb_mapping_class = self._smb_conn.Msft_SmbMapping
         smb_mapping_class.return_value = [fake_mapping, fake_mapping_attr_err]
 
         self._smbutils.unmount_smb_share(mock.sentinel.share_path,
-                                          force)
+                                         force)
 
         smb_mapping_class.assert_called_once_with(
             RemotePath=mock.sentinel.share_path)
@@ -100,14 +99,13 @@ class SMBUtilsTestCase(test_base.OsWinBaseTestCase):
     def test_force_unmount_smb_share(self):
         self._test_unmount_smb_share(force=True)
 
-    @mock.patch.object(smbutils, 'wmi', create=True)
-    def test_unmount_smb_share_wmi_exception(self, mock_wmi):
-        mock_wmi.x_wmi = Exception
+    def test_unmount_smb_share_wmi_exception(self):
         fake_mapping = mock.Mock()
-        fake_mapping.Remove.side_effect = mock_wmi.x_wmi
-        self._smbutils._smb_conn.Msft_SmbMapping.return_value = [fake_mapping]
+        fake_mapping.Remove.side_effect = exceptions.x_wmi
+        self._smb_conn.Msft_SmbMapping.return_value = [fake_mapping]
 
-        self.assertRaises(mock_wmi.x_wmi, self._smbutils.unmount_smb_share,
+        self.assertRaises(exceptions.SMBException,
+                          self._smbutils.unmount_smb_share,
                           mock.sentinel.share_path, force=True)
 
     @mock.patch.object(smbutils, 'ctypes')
@@ -162,3 +160,53 @@ class SMBUtilsTestCase(test_base.OsWinBaseTestCase):
     def test_get_share_capacity_info_raised_exc(self):
         self._test_get_share_capacity_info(
             raised_exc=exceptions.Win32Exception)
+
+    def test_get_smb_share_path(self):
+        fake_share = mock.Mock(Path=mock.sentinel.share_path)
+        self._smb_conn.Msft_SmbShare.return_value = [fake_share]
+
+        share_path = self._smbutils.get_smb_share_path(
+            mock.sentinel.share_name)
+
+        self.assertEqual(mock.sentinel.share_path, share_path)
+        self._smb_conn.Msft_SmbShare.assert_called_once_with(
+            Name=mock.sentinel.share_name)
+
+    def test_get_unexisting_smb_share_path(self):
+        self._smb_conn.Msft_SmbShare.return_value = []
+
+        share_path = self._smbutils.get_smb_share_path(
+            mock.sentinel.share_name)
+
+        self.assertIsNone(share_path)
+        self._smb_conn.Msft_SmbShare.assert_called_once_with(
+            Name=mock.sentinel.share_name)
+
+    @ddt.data({'local_ips': [mock.sentinel.ip0, mock.sentinel.ip1],
+               'dest_ips': [mock.sentinel.ip2, mock.sentinel.ip3],
+               'expected_local': False},
+              {'local_ips': [mock.sentinel.ip0, mock.sentinel.ip1],
+               'dest_ips': [mock.sentinel.ip1, mock.sentinel.ip3],
+               'expected_local': True})
+    @ddt.unpack
+    @mock.patch('os_win._utils.get_ips')
+    @mock.patch('socket.gethostname')
+    def test_is_local_share(self, mock_gethostname, mock_get_ips,
+                            local_ips, dest_ips, expected_local):
+        fake_share_server = 'fake_share_server'
+        fake_share = '\\\\%s\\fake_share' % fake_share_server
+        mock_get_ips.side_effect = (local_ips, dest_ips)
+        self._smbutils._loopback_share_map = {}
+
+        is_local = self._smbutils.is_local_share(fake_share)
+        self.assertEqual(expected_local, is_local)
+
+        # We ensure that this value is cached, calling it again
+        # and making sure that we have attempted to resolve the
+        # address only once.
+        self._smbutils.is_local_share(fake_share)
+
+        mock_gethostname.assert_called_once_with()
+        mock_get_ips.assert_has_calls(
+            [mock.call(mock_gethostname.return_value),
+             mock.call(fake_share_server)])

@@ -27,6 +27,7 @@ from os_win import _utils
 from os_win import constants
 from os_win import exceptions
 from os_win.utils import baseutils
+from os_win.utils import win32utils
 
 LOG = logging.getLogger(__name__)
 
@@ -35,7 +36,9 @@ class JobUtils(baseutils.BaseUtilsVirt):
 
     _CONCRETE_JOB_CLASS = "Msvm_ConcreteJob"
 
+    _DEFAULT_JOB_TERMINATE_TIMEOUT = 15  # seconds
     _KILL_JOB_STATE_CHANGE_REQUEST = 5
+    _WBEM_E_NOT_FOUND = 0x80041002
 
     _completed_job_states = [constants.JOB_STATE_COMPLETED,
                              constants.JOB_STATE_TERMINATED,
@@ -43,6 +46,26 @@ class JobUtils(baseutils.BaseUtilsVirt):
                              constants.JOB_STATE_COMPLETED_WITH_WARNINGS]
 
     def check_ret_val(self, ret_val, job_path, success_values=[0]):
+        """Checks that the job represented by the given arguments succeeded.
+
+        Some Hyper-V operations are not atomic, and will return a reference
+        to a job. In this case, this method will wait for the job's
+        completion.
+
+        :param ret_val: integer, representing the return value of the job.
+            if the value is WMI_JOB_STATUS_STARTED or WMI_JOB_STATE_RUNNING,
+            a job_path cannot be None.
+        :param job_path: string representing the WMI object path of a
+            Hyper-V job.
+        :param success_values: list of return values that can be considered
+            successful. WMI_JOB_STATUS_STARTED and WMI_JOB_STATE_RUNNING
+            values are ignored.
+        :raises exceptions.HyperVException: if the given ret_val is
+            WMI_JOB_STATUS_STARTED or WMI_JOB_STATE_RUNNING and the state of
+            job represented by the given job_path is not
+            WMI_JOB_STATE_COMPLETED, or if the given ret_val is not in the
+            list of given success_values.
+        """
         if ret_val in [constants.WMI_JOB_STATUS_STARTED,
                        constants.WMI_JOB_STATE_RUNNING]:
             return self._wait_for_job(job_path)
@@ -59,10 +82,6 @@ class JobUtils(baseutils.BaseUtilsVirt):
         while job.JobState == constants.WMI_JOB_STATE_RUNNING:
             time.sleep(0.1)
             job = self._get_wmi_obj(job_wmi_path)
-
-        if job.JobState == constants.JOB_STATE_KILLED:
-            LOG.debug("WMI job killed with status %s.", job.JobState)
-            return job
 
         if job.JobState != constants.WMI_JOB_STATE_COMPLETED:
             job_state = job.JobState
@@ -96,21 +115,73 @@ class JobUtils(baseutils.BaseUtilsVirt):
                   {'desc': desc, 'elap': elap})
         return job
 
-    def stop_jobs(self, element):
-        element_jobs = []
-        jobs_affecting_element = self._conn.Msvm_AffectedJobElement(
+    def _get_pending_jobs_affecting_element(self, element,
+                                            ignore_error_state=True):
+        # Msvm_AffectedJobElement is in fact an association between
+        # the affected element and the affecting job.
+        mappings = self._conn.Msvm_AffectedJobElement(
             AffectedElement=element.path_())
-        for job in jobs_affecting_element:
-            element_jobs.append(job.AffectingElement)
+        pending_jobs = [
+            mapping.AffectingElement
+            for mapping in mappings
+            if (mapping.AffectingElement and not
+                self._is_job_completed(mapping.AffectingElement,
+                                       ignore_error_state))]
+        return pending_jobs
 
-        for job in element_jobs:
-            if job and job.Cancellable and not self._is_job_completed(job):
-                job.RequestStateChange(self._KILL_JOB_STATE_CHANGE_REQUEST)
+    def _stop_jobs(self, element):
+        pending_jobs = self._get_pending_jobs_affecting_element(
+            element, ignore_error_state=False)
+        for job in pending_jobs:
+            try:
+                if not job.Cancellable:
+                    LOG.debug("Got request to terminate "
+                              "non-cancelable job.")
+                    continue
+                elif job.JobState == constants.JOB_STATE_EXCEPTION:
+                    LOG.debug("Attempting to terminate exception state job.")
 
-        return element_jobs
+                job.RequestStateChange(
+                    self._KILL_JOB_STATE_CHANGE_REQUEST)
+            except exceptions.x_wmi as ex:
+                hresult = win32utils.Win32Utils.get_com_error_hresult(
+                    ex.com_error)
+                # The job may had been completed right before we've
+                # attempted to kill it.
+                if not hresult == self._WBEM_E_NOT_FOUND:
+                    LOG.debug("Failed to stop job. Exception: %s", ex)
 
-    def _is_job_completed(self, job):
-        return job.JobState in self._completed_job_states
+        pending_jobs = self._get_pending_jobs_affecting_element(element)
+        if pending_jobs:
+            LOG.debug("Attempted to terminate jobs "
+                      "affecting element %(element)s but "
+                      "%(pending_count)s jobs are still pending.",
+                      dict(element=element,
+                           pending_count=len(pending_jobs)))
+            raise exceptions.JobTerminateFailed()
+
+    def _is_job_completed(self, job, ignore_error_state=True):
+        return (job.JobState in self._completed_job_states or
+                (job.JobState == constants.JOB_STATE_EXCEPTION and
+                 ignore_error_state))
+
+    def stop_jobs(self, element, timeout=_DEFAULT_JOB_TERMINATE_TIMEOUT):
+        """Stops the Hyper-V jobs associated with the given resource.
+
+        :param element: string representing the path of the Hyper-V resource
+            whose jobs will be stopped.
+        :param timeout: the maximum amount of time allowed to stop all the
+            given resource's jobs.
+        :raises exceptions.JobTerminateFailed: if there are still pending jobs
+            associated with the given resource and the given timeout amount of
+            time has passed.
+        """
+        @_utils.retry_decorator(exceptions=exceptions.JobTerminateFailed,
+                                timeout=timeout, max_retry_count=None)
+        def _stop_jobs_with_timeout():
+            self._stop_jobs(element)
+
+        _stop_jobs_with_timeout()
 
     @_utils.retry_decorator(exceptions=exceptions.HyperVException)
     def add_virt_resource(self, virt_resource, parent):

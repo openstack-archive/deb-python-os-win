@@ -13,7 +13,6 @@
 #    under the License.
 
 import os
-import six
 
 import mock
 
@@ -63,23 +62,11 @@ class PathUtilsTestCase(test_base.OsWinBaseTestCase):
         self._pathutils.move_folder_files(src_dir, dest_dir)
         mock_rename.assert_called_once_with(src_fname, dest_fname)
 
-    @mock.patch('shutil.rmtree')
-    @mock.patch('time.sleep')
-    def test_rmtree(self, mock_sleep, mock_rmtree):
-        class WindowsError(Exception):
-            def __init__(self, winerror=None):
-                self.winerror = winerror
+    @mock.patch.object(pathutils.PathUtils, 'rmtree')
+    def test_rmtree(self, mock_rmtree):
+        self._pathutils.rmtree(mock.sentinel.FAKE_PATH)
 
-        mock_rmtree.side_effect = [WindowsError(
-            pathutils.ERROR_DIR_IS_NOT_EMPTY), True]
-        fake_windows_error = WindowsError
-        with mock.patch.object(six.moves.builtins, 'WindowsError',
-                               fake_windows_error, create=True):
-            self._pathutils.rmtree(mock.sentinel.FAKE_PATH)
-
-        mock_sleep.assert_called_once_with(1)
-        mock_rmtree.assert_has_calls([mock.call(mock.sentinel.FAKE_PATH),
-                                      mock.call(mock.sentinel.FAKE_PATH)])
+        mock_rmtree.assert_called_once_with(mock.sentinel.FAKE_PATH)
 
     @mock.patch.object(pathutils.PathUtils, 'makedirs')
     @mock.patch.object(pathutils.PathUtils, 'exists')
@@ -188,3 +175,27 @@ class PathUtilsTestCase(test_base.OsWinBaseTestCase):
                           self._pathutils.copy,
                           mock.sentinel.src,
                           mock.sentinel.dest)
+
+    @mock.patch('os.close')
+    @mock.patch('tempfile.mkstemp')
+    def test_create_temporary_file(self, mock_mkstemp, mock_close):
+        fd = mock.sentinel.file_descriptor
+        path = mock.sentinel.absolute_pathname
+        mock_mkstemp.return_value = (fd, path)
+
+        output = self._pathutils.create_temporary_file(
+            suffix=mock.sentinel.suffix)
+
+        self.assertEqual(path, output)
+        mock_close.assert_called_once_with(fd)
+        mock_mkstemp.assert_called_once_with(suffix=mock.sentinel.suffix)
+
+    @mock.patch('oslo_utils.fileutils.delete_if_exists')
+    def test_temporary_file(self, mock_delete):
+        self._pathutils.create_temporary_file = mock.MagicMock()
+        self._pathutils.create_temporary_file.return_value = (
+            mock.sentinel.temporary_file)
+        with self._pathutils.temporary_file() as tmp_file:
+            self.assertEqual(mock.sentinel.temporary_file, tmp_file)
+            self.assertFalse(mock_delete.called)
+        mock_delete.assert_called_once_with(mock.sentinel.temporary_file)

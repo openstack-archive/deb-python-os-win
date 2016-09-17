@@ -16,6 +16,7 @@
 
 import netaddr
 import six
+import socket
 import time
 import types
 
@@ -40,10 +41,12 @@ def execute(*cmd, **kwargs):
 
 def parse_server_string(server_str):
     """Parses the given server_string and returns a tuple of host and port.
+
     If it's not a combination of host part and port, the port element
     is an empty string. If the input is invalid expression, return a tuple of
     two empty strings.
     """
+
     try:
         # First of all, exclude pure IPv6 address (w/o port).
         if netaddr.valid_ipv6(server_str):
@@ -88,8 +91,26 @@ def get_wrapped_function(function):
     return _get_wrapped_function(function)
 
 
-def retry_decorator(max_retry_count=5, inc_sleep_time=1,
+def retry_decorator(max_retry_count=5, timeout=None, inc_sleep_time=1,
                     max_sleep_time=1, exceptions=(), error_codes=()):
+    """Retries invoking the decorated method in case of expected exceptions.
+
+    :param max_retry_count: The maximum number of retries performed. If 0, no
+                            retry is performed. If None, there will be no limit
+                            on the number of retries.
+    :param timeout: The maximum time for which we'll retry invoking the method.
+                    If 0 or None, there will be no time limit.
+    :param inc_sleep_time: The time sleep increment used between retries.
+    :param max_sleep_time: The maximum time to wait between retries.
+    :param exceptions: A list of expected exceptions for which retries will be
+                       performed.
+    :param error_codes: A list of expected error codes. The error code is
+                        retrieved from the 'error_code' exception attribute,
+                        for example in case of Win32Exception. If this argument
+                        is not passed, retries will be performed for any of the
+                        expected exceptions.
+    """
+
     if isinstance(error_codes, six.integer_types):
         error_codes = (error_codes, )
 
@@ -97,6 +118,7 @@ def retry_decorator(max_retry_count=5, inc_sleep_time=1,
         def inner(*args, **kwargs):
             try_count = 0
             sleep_time = 0
+            time_start = time.time()
 
             while True:
                 try:
@@ -104,27 +126,51 @@ def retry_decorator(max_retry_count=5, inc_sleep_time=1,
                 except exceptions as exc:
                     with excutils.save_and_reraise_exception() as ctxt:
                         err_code = getattr(exc, 'error_code', None)
-                        expected_err_code = (err_code in error_codes
-                                             or not error_codes)
-                        should_retry = (expected_err_code
-                                        and try_count < max_retry_count)
+                        expected_err_code = (err_code in error_codes or not
+                                             error_codes)
+
+                        time_elapsed = time.time() - time_start
+                        time_left = (timeout - time_elapsed
+                                     if timeout else 'undefined')
+                        tries_left = (max_retry_count - try_count
+                                      if max_retry_count is not None
+                                      else 'undefined')
+
+                        should_retry = (
+                            expected_err_code and
+                            tries_left and
+                            (time_left == 'undefined' or
+                             time_left > 0))
                         ctxt.reraise = not should_retry
 
                         if should_retry:
                             try_count += 1
                             func_name = reflection.get_callable_name(f)
-                            LOG.debug("Got expected exception %(exc)s while "
-                                      "calling function %(func_name)s. "
-                                      "Retries left: %(retries_left)d. "
-                                      "Retrying in %(sleep_time)s seconds.",
-                                      dict(exc=exc,
-                                           func_name=func_name,
-                                           retries_left=(
-                                               max_retry_count - try_count),
-                                           sleep_time=sleep_time))
 
                             sleep_time = min(sleep_time + inc_sleep_time,
                                              max_sleep_time)
+                            if timeout:
+                                sleep_time = min(sleep_time, time_left)
+
+                            LOG.debug("Got expected exception %(exc)s while "
+                                      "calling function %(func_name)s. "
+                                      "Retries left: %(retries_left)s. "
+                                      "Time left: %(time_left)s. "
+                                      "Time elapsed: %(time_elapsed)s "
+                                      "Retrying in %(sleep_time)s seconds.",
+                                      dict(exc=exc,
+                                           func_name=func_name,
+                                           retries_left=tries_left,
+                                           time_left=time_left,
+                                           time_elapsed=time_elapsed,
+                                           sleep_time=sleep_time))
                             time.sleep(sleep_time)
         return inner
     return wrapper
+
+
+def get_ips(addr):
+    addr_info = socket.getaddrinfo(addr, None, 0, 0, 0)
+    # Returns IPv4 and IPv6 addresses, ordered by protocol family
+    addr_info.sort()
+    return [a[4][0] for a in addr_info]
