@@ -1,0 +1,8 @@
+Code-Review+2: Thomas Goirand <thomas@goirand.fr>
+Workflow+1: Thomas Goirand <thomas@goirand.fr>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Sat, 17 Sep 2016 21:32:01 +0000
+Reviewed-on: https://review.openstack.org/371982
+Project: openstack/deb-python-os-win
+Branch: refs/heads/debian/newton
