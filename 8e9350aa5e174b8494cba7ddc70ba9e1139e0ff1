@@ -1,0 +1,9 @@
+Code-Review+2: Claudiu Belu <cbelu@cloudbasesolutions.com>
+Code-Review+1: venkatamahesh <Venkata.Kotha@infinite.com>
+Workflow+1: Claudiu Belu <cbelu@cloudbasesolutions.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Mon, 05 Dec 2016 16:40:57 +0000
+Reviewed-on: https://review.openstack.org/402941
+Project: openstack/deb-python-os-win
+Branch: refs/heads/master
